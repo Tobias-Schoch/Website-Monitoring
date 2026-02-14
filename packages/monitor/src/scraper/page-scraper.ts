@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { playwrightManager } from './playwright-manager';
 import { retry, createModuleLogger, APP_CONFIG, hashContent } from '@website-monitor/shared';
+import { htmlNormalizer } from './html-normalizer';
 
 const logger = createModuleLogger('PageScraper');
 
@@ -111,16 +112,30 @@ export class PageScraper {
       // @ts-expect-error - Running in browser context where document is available
       document.querySelectorAll('script, style, noscript').forEach(el => el.remove());
 
-      // Remove cookie banners and consent dialogs
-      const cookieSelectors = [
-        '[class*="cookie"]',
-        '[id*="cookie"]',
-        '[class*="consent"]',
-        '[id*="consent"]',
-        '[class*="gdpr"]',
-        '[id*="gdpr"]'
+      // Remove cookie banners, consent dialogs, and CCM elements
+      const ccmSelectors = [
+        '[class*="ccm" i]',
+        '[id*="ccm" i]',
+        '[class*="cookie" i]',
+        '[id*="cookie" i]',
+        '[class*="consent" i]',
+        '[id*="consent" i]',
+        '[class*="gdpr" i]',
+        '[id*="gdpr" i]'
       ];
-      cookieSelectors.forEach(selector => {
+      ccmSelectors.forEach(selector => {
+        // @ts-expect-error - Running in browser context
+        document.querySelectorAll(selector).forEach(el => el.remove());
+      });
+
+      // Remove advertisement elements
+      const adSelectors = [
+        '[class*="advertisement" i]',
+        '[id*="advertisement" i]',
+        '[class*="ad-" i]',
+        '[id*="ad-" i]'
+      ];
+      adSelectors.forEach(selector => {
         // @ts-expect-error - Running in browser context
         document.querySelectorAll(selector).forEach(el => el.remove());
       });
@@ -154,6 +169,9 @@ export class PageScraper {
 
     // Remove UUIDs
     normalized = normalized.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'UUID');
+
+    // Apply aggressive attribute normalization to remove dynamic IDs, classes, data-*, aria-*, etc.
+    normalized = htmlNormalizer.normalizeAttributes(normalized);
 
     // Aggressive whitespace normalization to handle formatting differences
     // 1. Remove whitespace between tags (handles formatted vs. minified HTML)

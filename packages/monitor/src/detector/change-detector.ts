@@ -6,8 +6,11 @@ import {
   ChangeType,
   Priority,
   ChangeComparisonResult,
-  FormField
+  FormField,
+  SemanticDiff,
+  HTML_NORMALIZATION_CONFIG
 } from '@website-monitor/shared';
+import { htmlNormalizer } from '../scraper/html-normalizer';
 
 const logger = createModuleLogger('ChangeDetector');
 
@@ -32,11 +35,66 @@ export class ChangeDetector {
     }
 
     // Use hash comparison instead of Levenshtein (prevents memory issues with large HTML)
-    const hasSignificantChange = previousHtmlHash !== currentHtmlHash;
-    const similarity = hasSignificantChange ? 0.0 : 1.0;
+    const hasHashChange = previousHtmlHash !== currentHtmlHash;
 
-    // Only check for forms/keywords if there's an actual content change
-    if (hasSignificantChange) {
+    // If hash hasn't changed, no changes at all
+    if (!hasHashChange) {
+      return {
+        hasChanged: false,
+        type: null,
+        priority: Priority.INFO,
+        confidence: 0,
+        description: 'No changes detected'
+      };
+    }
+
+    // Hash changed - perform SEMANTIC comparison if enabled
+    let hasSemanticChange = true;
+    let semanticDiff: SemanticDiff | null = null;
+
+    if (HTML_NORMALIZATION_CONFIG.ENABLE_SEMANTIC_COMPARISON) {
+      logger.info('Hash change detected, performing semantic comparison...');
+
+      const prevSemantic = htmlNormalizer.extractSemanticContent(previousHtmlNormalized);
+      const currSemantic = htmlNormalizer.extractSemanticContent(currentNormalizedHtml);
+
+      semanticDiff = htmlNormalizer.compareSemanticContent(prevSemantic, currSemantic);
+
+      hasSemanticChange =
+        (HTML_NORMALIZATION_CONFIG.TRACK_TEXT_CHANGES && semanticDiff?.hasTextChanges) ||
+        (HTML_NORMALIZATION_CONFIG.TRACK_IMAGE_CHANGES && semanticDiff?.hasImageChanges) ||
+        (HTML_NORMALIZATION_CONFIG.TRACK_LINK_CHANGES && semanticDiff?.hasLinkChanges) ||
+        false;
+
+      if (!hasSemanticChange && semanticDiff) {
+        logger.info('No semantic changes detected (noise filtered)', {
+          textChanges: semanticDiff.hasTextChanges,
+          imageChanges: semanticDiff.hasImageChanges,
+          linkChanges: semanticDiff.hasLinkChanges
+        });
+        return {
+          hasChanged: false,
+          type: null,
+          priority: Priority.INFO,
+          confidence: 0,
+          description: 'No significant changes detected (filtered noise)'
+        };
+      }
+
+      if (semanticDiff) {
+        logger.info('Semantic changes detected', {
+          textChanges: semanticDiff.hasTextChanges,
+          imageChanges: semanticDiff.hasImageChanges,
+          linkChanges: semanticDiff.hasLinkChanges,
+          changedTextCount: semanticDiff.changedTexts.length,
+          changedImageCount: semanticDiff.changedImages.length,
+          changedLinkCount: semanticDiff.changedLinks.length
+        });
+      }
+    }
+
+    // Only check for forms/keywords if there's a semantic content change
+    if (hasSemanticChange) {
 
       // Check for form detection first (highest priority)
       const currentFormDetection = this.detectForms(currentHtml);
@@ -87,15 +145,23 @@ export class ChangeDetector {
       }
     }
 
-    // If we reach here and there was a significant change, it's a regular content change
-    if (hasSignificantChange) {
+    // If we reach here and there was a semantic change, it's a regular content change
+    if (hasSemanticChange) {
+      const description = semanticDiff && HTML_NORMALIZATION_CONFIG.ENABLE_SEMANTIC_COMPARISON
+        ? `📝 ${htmlNormalizer.generateChangeDescription(semanticDiff)}. Check the screenshot for details.`
+        : '📝 Page content updated. Check the screenshot for details.';
+
+      const diff = semanticDiff && HTML_NORMALIZATION_CONFIG.ENABLE_SEMANTIC_COMPARISON
+        ? htmlNormalizer.generateSemanticDiff(semanticDiff)
+        : this.generateDiff(previousHtmlOriginal || previousHtmlNormalized, currentHtml);
+
       return {
         hasChanged: true,
         type: ChangeType.CONTENT,
         priority: Priority.INFO,
-        confidence: 1 - similarity,
-        description: '📝 Page content updated. Check the screenshot for details.',
-        diff: this.generateDiff(previousHtmlOriginal || previousHtmlNormalized, currentHtml)
+        confidence: 0.8,
+        description,
+        diff
       };
     }
 

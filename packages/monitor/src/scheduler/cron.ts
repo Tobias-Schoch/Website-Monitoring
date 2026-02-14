@@ -2,7 +2,7 @@ import { checkQueue } from './queue';
 import { MonitoredUrlsRepository } from '@website-monitor/database';
 import { createModuleLogger } from '@website-monitor/shared';
 import { settingsService } from '../services/settings-service';
-import cron from 'node-cron';
+import * as cron from 'node-cron';
 
 const logger = createModuleLogger('Cron');
 const urlsRepo = new MonitoredUrlsRepository();

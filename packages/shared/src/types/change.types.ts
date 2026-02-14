@@ -54,3 +54,27 @@ export interface FormField {
   required: boolean;
   placeholder?: string;
 }
+
+export interface SemanticContent {
+  texts: string[];
+  images: ImageContent[];
+  links: LinkContent[];
+}
+
+export interface ImageContent {
+  src: string;
+  alt: string;
+}
+
+export interface LinkContent {
+  href: string;
+}
+
+export interface SemanticDiff {
+  hasTextChanges: boolean;
+  hasImageChanges: boolean;
+  hasLinkChanges: boolean;
+  changedTexts: string[];
+  changedImages: ImageContent[];
+  changedLinks: LinkContent[];
+}

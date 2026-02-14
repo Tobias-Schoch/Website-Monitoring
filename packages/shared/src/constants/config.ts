@@ -12,6 +12,28 @@ export const APP_CONFIG = {
   MAX_SCREENSHOT_HEIGHT: 1080
 } as const;
 
+export const HTML_NORMALIZATION_CONFIG = {
+  // Enable/disable semantic comparison (vs. just hash)
+  ENABLE_SEMANTIC_COMPARISON: true,
+
+  // Attribute patterns to remove
+  REMOVE_DYNAMIC_IDS: true,
+  REMOVE_DYNAMIC_CLASSES: true,
+  REMOVE_DATA_ATTRIBUTES: true,
+  REMOVE_ARIA_ATTRIBUTES: true,
+  REMOVE_STYLE_ATTRIBUTES: true,
+
+  // Element removal patterns
+  REMOVE_CCM_ELEMENTS: true,
+  REMOVE_NOSCRIPT: true,
+  REMOVE_ADS: true,
+
+  // What to track
+  TRACK_TEXT_CHANGES: true,
+  TRACK_IMAGE_CHANGES: true,
+  TRACK_LINK_CHANGES: true,
+} as const;
+
 export const NOTIFICATION_CONFIG = {
   CHANNELS: [
     {
