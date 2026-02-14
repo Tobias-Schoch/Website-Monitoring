@@ -1,7 +1,8 @@
 """Utility functions for HTML normalization and processing."""
 import re
 import hashlib
-from typing import Tuple
+import logging
+from typing import Tuple, List, Dict, Set
 
 
 def clean_html(html: str, aggressive: bool = True) -> str:
@@ -209,3 +210,199 @@ def process_html(html: str) -> Tuple[str, str]:
     normalized = normalize_html(html)
     html_hash = calculate_hash(normalized)
     return normalized, html_hash
+
+
+logger = logging.getLogger(__name__)
+
+
+def extract_semantic_content(html: str) -> Dict[str, List]:
+    """
+    Extract semantic content from HTML (text, images, links).
+
+    Returns:
+        Dict with keys: 'texts', 'images', 'links'
+    """
+    if not html:
+        return {'texts': [], 'images': [], 'links': []}
+
+    try:
+        from bs4 import BeautifulSoup
+
+        # Parse HTML with BeautifulSoup
+        soup = BeautifulSoup(html, 'lxml')
+
+        # Remove script, style, noscript tags
+        for tag in soup(['script', 'style', 'noscript']):
+            tag.decompose()
+
+        # Extract text content
+        texts = []
+        for text in soup.stripped_strings:
+            text = text.strip()
+            if text and len(text) > 0:
+                texts.append(text)
+
+        # Extract images
+        images = []
+        for img in soup.find_all('img'):
+            src = img.get('src', '')
+            alt = img.get('alt', '')
+            if src:
+                images.append({'src': src, 'alt': alt})
+
+        # Extract links
+        links = []
+        for link in soup.find_all('a', href=True):
+            href = link.get('href', '')
+            if href:
+                links.append({'href': href})
+
+        return {
+            'texts': texts,
+            'images': images,
+            'links': links
+        }
+
+    except Exception as e:
+        logger.error(f"Error extracting semantic content: {e}")
+        return {'texts': [], 'images': [], 'links': []}
+
+
+def compare_semantic_content(
+    previous: Dict[str, List],
+    current: Dict[str, List]
+) -> Dict[str, any]:
+    """
+    Compare semantic content and return differences.
+
+    Returns:
+        Dict with keys:
+        - has_text_changes, has_image_changes, has_link_changes (bool)
+        - changed_texts, changed_images, changed_links (lists)
+    """
+    # Compare texts
+    prev_text_set = set(previous.get('texts', []))
+    curr_text_set = set(current.get('texts', []))
+    changed_texts = []
+
+    # New/changed texts
+    for text in curr_text_set:
+        if text not in prev_text_set:
+            changed_texts.append(text)
+
+    # Removed texts
+    for text in prev_text_set:
+        if text not in curr_text_set:
+            changed_texts.append(f"[REMOVED] {text}")
+
+    has_text_changes = len(changed_texts) > 0
+
+    # Compare images (by src)
+    prev_image_srcs = {img['src'] for img in previous.get('images', [])}
+    curr_image_srcs = {img['src'] for img in current.get('images', [])}
+    changed_images = []
+
+    # New images
+    for img in current.get('images', []):
+        if img['src'] not in prev_image_srcs:
+            changed_images.append(img)
+
+    # Removed images
+    for img in previous.get('images', []):
+        if img['src'] not in curr_image_srcs:
+            changed_images.append({'src': f"[REMOVED] {img['src']}", 'alt': img['alt']})
+
+    has_image_changes = len(changed_images) > 0
+
+    # Compare links (by href)
+    prev_link_hrefs = {link['href'] for link in previous.get('links', [])}
+    curr_link_hrefs = {link['href'] for link in current.get('links', [])}
+    changed_links = []
+
+    # New links
+    for link in current.get('links', []):
+        if link['href'] not in prev_link_hrefs:
+            changed_links.append(link)
+
+    # Removed links
+    for link in previous.get('links', []):
+        if link['href'] not in curr_link_hrefs:
+            changed_links.append({'href': f"[REMOVED] {link['href']}"})
+
+    has_link_changes = len(changed_links) > 0
+
+    return {
+        'has_text_changes': has_text_changes,
+        'has_image_changes': has_image_changes,
+        'has_link_changes': has_link_changes,
+        'changed_texts': changed_texts,
+        'changed_images': changed_images,
+        'changed_links': changed_links
+    }
+
+
+def generate_semantic_diff(diff: Dict[str, any], max_items: int = 5) -> str:
+    """
+    Generate human-readable diff from semantic comparison.
+
+    Args:
+        diff: Result from compare_semantic_content()
+        max_items: Max items to show per category
+
+    Returns:
+        Formatted string with changes
+    """
+    lines = []
+
+    if diff['has_text_changes'] and diff['changed_texts']:
+        lines.append('Text Changes:')
+        for text in diff['changed_texts'][:max_items]:
+            # Truncate long texts
+            display_text = text[:100] + '...' if len(text) > 100 else text
+            lines.append(f"  - {display_text}")
+        if len(diff['changed_texts']) > max_items:
+            lines.append(f"  ... and {len(diff['changed_texts']) - max_items} more")
+        lines.append('')
+
+    if diff['has_image_changes'] and diff['changed_images']:
+        lines.append('Image Changes:')
+        for img in diff['changed_images'][:max_items]:
+            lines.append(f"  - {img['src']} (alt: {img['alt']})")
+        if len(diff['changed_images']) > max_items:
+            lines.append(f"  ... and {len(diff['changed_images']) - max_items} more")
+        lines.append('')
+
+    if diff['has_link_changes'] and diff['changed_links']:
+        lines.append('Link Changes:')
+        for link in diff['changed_links'][:max_items]:
+            lines.append(f"  - {link['href']}")
+        if len(diff['changed_links']) > max_items:
+            lines.append(f"  ... and {len(diff['changed_links']) - max_items} more")
+        lines.append('')
+
+    return '\n'.join(lines)
+
+
+def generate_change_description(diff: Dict[str, any]) -> str:
+    """
+    Generate short description of changes.
+
+    Args:
+        diff: Result from compare_semantic_content()
+
+    Returns:
+        Short description like "Page text, images updated"
+    """
+    changes = []
+
+    if diff['has_text_changes']:
+        changes.append('text content')
+    if diff['has_image_changes']:
+        changes.append('images')
+    if diff['has_link_changes']:
+        changes.append('links')
+
+    if not changes:
+        return 'No significant changes detected'
+
+    return f"Page {', '.join(changes)} updated"

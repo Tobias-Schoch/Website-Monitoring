@@ -7,7 +7,14 @@ from dataclasses import dataclass
 from diff_match_patch import diff_match_patch
 
 from backend.database import ChangeType, Priority
-from backend.utils import clean_html
+from backend.utils import (
+    clean_html,
+    extract_semantic_content,
+    compare_semantic_content,
+    generate_semantic_diff,
+    generate_change_description
+)
+from backend.config import settings
 
 
 logger = logging.getLogger(__name__)
@@ -101,12 +108,62 @@ class ChangeDetector:
                 description='Initial check - no previous data'
             )
 
-        # Use hash comparison instead of Levenshtein
-        has_significant_change = previous_html_hash != current_html_hash
-        similarity = 0.0 if has_significant_change else 1.0
+        # Use hash comparison (prevents memory issues with large HTML)
+        has_hash_change = previous_html_hash != current_html_hash
 
-        # Only check for forms/keywords if there's an actual content change
-        if has_significant_change:
+        # If hash unchanged, no changes at all
+        if not has_hash_change:
+            return ChangeDetectionResult(
+                has_changed=False,
+                change_type=None,
+                priority=Priority.INFO,
+                confidence=0,
+                description='No changes detected'
+            )
+
+        # Hash changed - perform SEMANTIC comparison if enabled
+        has_semantic_change = True
+        semantic_diff = None
+
+        if settings.enable_semantic_comparison:
+            logger.info('Hash change detected, performing semantic comparison...')
+
+            prev_semantic = extract_semantic_content(previous_html_normalized)
+            curr_semantic = extract_semantic_content(current_normalized_html)
+
+            semantic_diff = compare_semantic_content(prev_semantic, curr_semantic)
+
+            has_semantic_change = (
+                (settings.track_text_changes and semantic_diff['has_text_changes']) or
+                (settings.track_image_changes and semantic_diff['has_image_changes']) or
+                (settings.track_link_changes and semantic_diff['has_link_changes'])
+            )
+
+            if not has_semantic_change:
+                logger.info('No semantic changes detected (noise filtered)', extra={
+                    'text_changes': semantic_diff['has_text_changes'],
+                    'image_changes': semantic_diff['has_image_changes'],
+                    'link_changes': semantic_diff['has_link_changes']
+                })
+                return ChangeDetectionResult(
+                    has_changed=False,
+                    change_type=None,
+                    priority=Priority.INFO,
+                    confidence=0,
+                    description='No significant changes detected (filtered noise)'
+                )
+
+            logger.info('Semantic changes detected', extra={
+                'text_changes': semantic_diff['has_text_changes'],
+                'image_changes': semantic_diff['has_image_changes'],
+                'link_changes': semantic_diff['has_link_changes'],
+                'changed_text_count': len(semantic_diff['changed_texts']),
+                'changed_image_count': len(semantic_diff['changed_images']),
+                'changed_link_count': len(semantic_diff['changed_links'])
+            })
+
+        # Only check for forms/keywords if there's a semantic content change
+        if has_semantic_change:
             # Check for form detection first (highest priority)
             current_form_detection = self.detect_forms(current_html)
             if current_form_detection.detected:
@@ -164,18 +221,27 @@ class ChangeDetector:
                         )
                     )
 
-        # If we reach here and there was a significant change, it's a regular content change
-        if has_significant_change:
+        # If we reach here and there was a semantic change, it's a regular content change
+        if has_semantic_change:
+            description = '📝 Page content updated. Check the screenshot for details.'
+            diff_text = None
+
+            if semantic_diff and settings.enable_semantic_comparison:
+                description = f"📝 {generate_change_description(semantic_diff)}. Check the screenshot for details."
+                diff_text = generate_semantic_diff(semantic_diff)
+            else:
+                diff_text = self.generate_diff(
+                    previous_html_original or previous_html_normalized,
+                    current_html
+                )
+
             return ChangeDetectionResult(
                 has_changed=True,
                 change_type=ChangeType.CONTENT,
                 priority=Priority.INFO,
-                confidence=1 - similarity,
-                description='Die Seite wurde aktualisiert.',
-                diff=self.generate_diff(
-                    previous_html_original or previous_html_normalized,
-                    current_html
-                )
+                confidence=0.8,
+                description=description,
+                diff=diff_text
             )
 
         return ChangeDetectionResult(

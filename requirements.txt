@@ -27,3 +27,7 @@ pillow==10.4.0
 
 # Diff generation
 diff-match-patch==20230430
+
+# HTML Parsing
+beautifulsoup4>=4.12.0
+lxml>=5.0.0

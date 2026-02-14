@@ -81,6 +81,11 @@ On your first visit to `http://localhost:3000`, you'll see a friendly setup wiza
   - Working hours (7-17h): `*/5 7-17 * * *` (every 5 min)
   - Off hours (0-6h, 18-23h): `*/3 0-6,18-23 * * *` (every 3 min)
 - Screenshot retention & notification settings
+- **Semantic Filtering** (enabled by default):
+  - `enable_semantic_comparison`: Enable/disable semantic content filtering
+  - `track_text_changes`: Monitor text content changes
+  - `track_image_changes`: Monitor image changes
+  - `track_link_changes`: Monitor link changes
 
 All settings are stored in the database and can be updated anytime via the settings page.
 
@@ -91,14 +96,21 @@ All settings are stored in the database and can be updated anytime via the setti
 ### Change Detection Strategy
 
 1. **Fetch Page** - Playwright renders JavaScript-heavy pages
-2. **Normalize HTML** - Removes timestamps, UUIDs, dynamic content
+2. **Normalize HTML** - Removes timestamps, UUIDs, dynamic content, scripts, styles, CCM cookie consent
 3. **Calculate Hash** - SHA-256 of normalized content
-4. **Compare** - Detect actual content changes (no false positives)
-5. **Analyze Changes**:
+4. **Hash Comparison** - Quick check if content changed at all
+5. **Semantic Filtering** (NEW!) - If hash changed:
+   - Extract semantic content (text, images, links) using BeautifulSoup
+   - Compare extracted content between versions
+   - Filter out noise (structural changes, attribute changes, whitespace)
+   - Only trigger if actual content (text/images/links) changed
+6. **Analyze Changes** (if semantic change detected):
    - **Forms Detected** → 🚨 CRITICAL (new form found)
    - **Keywords Matched** → ⚠️ CRITICAL/IMPORTANT (new keywords)
    - **Content Changed** → ℹ️ INFO (regular update)
-6. **Notify** - Route to appropriate channels based on priority
+7. **Notify** - Route to appropriate channels based on priority
+
+**Result:** Zero false positives from cookie banners, dynamic attributes, or structural HTML changes!
 
 ### Priority Routing
 

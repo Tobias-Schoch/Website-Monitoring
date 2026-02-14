@@ -44,6 +44,12 @@ class Settings:
         self.notification_cooldown_minutes: int = 10
         self.max_notification_retries: int = 3
 
+        # HTML Normalization Settings
+        self.enable_semantic_comparison: bool = True
+        self.track_text_changes: bool = True
+        self.track_image_changes: bool = True
+        self.track_link_changes: bool = True
+
     async def load_from_database(self, session):
         """Load settings from database."""
         from sqlalchemy import select
@@ -72,6 +78,10 @@ class Settings:
             self.screenshot_retention_days = data.get('screenshot_retention_days', 30)
             self.notification_cooldown_minutes = data.get('notification_cooldown_minutes', 10)
             self.max_notification_retries = data.get('max_notification_retries', 3)
+            self.enable_semantic_comparison = data.get('enable_semantic_comparison', True)
+            self.track_text_changes = data.get('track_text_changes', True)
+            self.track_image_changes = data.get('track_image_changes', True)
+            self.track_link_changes = data.get('track_link_changes', True)
 
     async def save_to_database(self, session, data: dict):
         """Save settings to database."""
@@ -118,6 +128,10 @@ class Settings:
             'screenshot_retention_days': self.screenshot_retention_days,
             'notification_cooldown_minutes': self.notification_cooldown_minutes,
             'max_notification_retries': self.max_notification_retries,
+            'enable_semantic_comparison': self.enable_semantic_comparison,
+            'track_text_changes': self.track_text_changes,
+            'track_image_changes': self.track_image_changes,
+            'track_link_changes': self.track_link_changes,
         }
 
 
